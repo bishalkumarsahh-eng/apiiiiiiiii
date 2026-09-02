@@ -40,3 +40,15 @@ MUSIC_API_KEY=jx_live_YOUR_BOT_KEY
 ```
 
 Use only media you are authorized to access and comply with applicable platform terms and copyright law.
+
+
+## YouTube cookie support
+
+If YouTube returns `Sign in to confirm you're not a bot`, the API can optionally use a
+Netscape-format YouTube cookies file. Set `YOUTUBE_COOKIES_B64` to the base64-encoded
+contents of that cookies file. The API writes it to `/tmp/juno_youtube_cookies.txt`
+with restricted permissions and passes it to yt-dlp.
+
+Do not commit cookies to source control or share them. Cookies are authentication
+credentials and should be rotated/revoked if exposed. Use cookies only for accounts
+and access you are authorized to use and in accordance with YouTube's terms.

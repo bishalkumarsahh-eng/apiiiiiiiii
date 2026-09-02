@@ -5,6 +5,7 @@ import time
 import asyncio
 import sqlite3
 import hashlib
+import base64
 from pathlib import Path
 from typing import Optional
 
@@ -20,8 +21,8 @@ API_DB = os.getenv("API_DB", "/tmp/juno_api.sqlite3").strip()
 MAX_DURATION = int(os.getenv("MAX_DURATION", "900"))
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "10"))
 DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "300"))
-
-app = FastAPI(title=APP_NAME, version="3.0.1", docs_url="/docs", redoc_url="/redoc")
+# Optional YouTube Netscape-format cookies, supplied as base64 in YOUTUBE_COOKIES_B64.\nYOUTUBE_COOKIES_B64 = os.getenv("YOUTUBE_COOKIES_B64", "").strip()\nYOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "/tmp/juno_youtube_cookies.txt").strip()\n
+app = FastAPI(title=APP_NAME, version="3.1.0", docs_url="/docs", redoc_url="/redoc")
 admin_bearer = HTTPBearer(auto_error=False, scheme_name="AdminKey")
 
 
@@ -34,6 +35,41 @@ def db():
 
 def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
+
+def prepare_youtube_cookies() -> Optional[str]:
+    """Decode optional base64 Netscape cookies into a temporary cookie file."""
+    if not YOUTUBE_COOKIES_B64:
+        return None
+    try:
+        data = base64.b64decode(YOUTUBE_COOKIES_B64, validate=True)
+        if not data:
+            return None
+        path = Path(YOUTUBE_COOKIES_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return str(path)
+    except Exception as exc:
+        raise RuntimeError("YOUTUBE_COOKIES_B64 is not valid base64") from exc
+
+
+def yt_base_opts() -> dict:
+    """Common yt-dlp options, including optional authenticated YouTube cookies."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "retries": 3,
+        "socket_timeout": 30,
+    }
+    cookie_file = prepare_youtube_cookies()
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
+    return opts
+
 
 def check_admin(request: Request, credentials: HTTPAuthorizationCredentials | None = None):
     key = request.headers.get("x-admin-key", "").strip()
@@ -88,7 +124,8 @@ def normalize_url(value: str) -> str:
 
 
 def search_sync(query: str, limit: int):
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": True}
+    opts = yt_base_opts()
+    opts.update({"skip_download": True, "extract_flat": True})
     with yt_dlp.YoutubeDL(opts) as ydl:
         data = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
     results = []
@@ -107,7 +144,7 @@ def search_sync(query: str, limit: int):
 
 
 def info_sync(url: str):
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+    with yt_dlp.YoutubeDL(yt_base_opts()) as ydl:
         info = ydl.extract_info(normalize_url(url), download=False)
     duration = info.get("duration")
     if duration and duration > MAX_DURATION:
@@ -117,14 +154,10 @@ def info_sync(url: str):
 
 def download_sync(url: str, media_type: str, workdir: str):
     Path(workdir).mkdir(parents=True, exist_ok=True)
-    common = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
+    common = yt_base_opts()
+    common.update({
         "outtmpl": str(Path(workdir) / "%(id)s.%(ext)s"),
-        "retries": 3,
-        "socket_timeout": 30,
-    }
+    })
     if media_type == "audio":
         common.update({
             "format": "bestaudio/best",
@@ -194,12 +227,12 @@ async def revoke_api_key(request: Request, api_key: Optional[str] = None, key_id
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": APP_NAME, "version": "3.0.1", "time": int(time.time())}
+    return {"ok": True, "service": APP_NAME, "version": "3.1.0", "time": int(time.time())}
 
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": APP_NAME}
+    return {"ok": True, "service": APP_NAME, "youtube_cookies_configured": bool(YOUTUBE_COOKIES_B64)}
 
 
 @app.get("/search")
@@ -251,7 +284,13 @@ async def download(request: Request, url: str, type: str = "audio"):
         raise HTTPException(504, "Download timed out")
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except Exception:
+    except Exception as e:
+        msg = str(e)
+        if "Sign in to confirm" in msg or "not a bot" in msg or "cookies" in msg.lower():
+            raise HTTPException(
+                502,
+                "YouTube requires authentication. Configure YOUTUBE_COOKIES_B64 with valid Netscape-format YouTube cookies."
+            )
         raise HTTPException(502, "Download failed")
 
     title = re.sub(r"[\\\"\r\n]", "", info.get("title") or "audio")[:120]
@@ -274,6 +313,6 @@ async def download(request: Request, url: str, type: str = "audio"):
         media_type=media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{title}{path.suffix}"',
-            "X-API-Version": "3.0.1",
+            "X-API-Version": "3.1.0",
         },
     )
