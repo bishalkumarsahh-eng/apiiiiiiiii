@@ -1,58 +1,42 @@
-# Juno X Music API v3
+# Juno X Music — Standalone Powerful API v3
 
-Standalone API for multiple Telegram/music bots.
+Separate API server for multiple Telegram/music bots. Each bot can have its own API key.
 
-## Features
-- Multiple independent API keys
-- Per-key rate limiting
-- Key enable/revoke management
-- Search, metadata and audio/video download
-- Concurrency protection for many bots
-- Request IDs and response timing headers
-- FastAPI Swagger docs at `/docs`
-
-## Deploy
-Set these environment variables:
-
-`ADMIN_KEY` = a strong secret used only for key management.
-
-Optional tuning:
-- `MAX_RESULTS=20`
-- `MAX_CONCURRENT_DOWNLOADS=4`
-- `MAX_CONCURRENT_LOOKUPS=12`
-- `RATE_LIMIT_PER_MINUTE=120`
-- `MAX_DURATION=900`
-- `DOWNLOAD_TIMEOUT=300`
-
-Install FFmpeg on the server because audio conversion/video merging uses FFmpeg.
-
-## Create an API key
-Send an authenticated POST request to `/admin/keys` with `x-admin-key`.
-
-Example:
-```bash
-curl -X POST 'https://YOUR-API/admin/keys?label=telegram-bot-1' -H 'x-admin-key: YOUR_ADMIN_KEY'
+## Environment variables
+```env
+API_NAME=Juno X Music API
+ADMIN_KEY=YOUR_LONG_RANDOM_ADMIN_SECRET
+API_DB=/tmp/juno_api.sqlite3
+MAX_DURATION=900
+MAX_RESULTS=20
+DOWNLOAD_TIMEOUT=300
 ```
+`API_KEY` is optional legacy compatibility. New installations should use `ADMIN_KEY` and create individual bot keys.
 
-Save the returned API key. The server stores only its hash.
+## Generate a bot API key
+Open `/docs`, find **POST /admin/keys/create**, click **Try it out**, enter a label such as `Juno Music Bot`, then click **Execute**.
 
-## Use from any bot
-Header:
-```text
-X-API-Key: YOUR_API_KEY
-```
-or
-```text
-Authorization: Bearer YOUR_API_KEY
-```
+Authorize the admin request with either `X-Admin-Key: YOUR_ADMIN_KEY` or `Authorization: Bearer YOUR_ADMIN_KEY`.
 
-Endpoints:
-- `GET /search?q=term&limit=10`
-- `GET /info?url=...`
-- `GET /download?url=...&type=audio&quality=192`
-- `GET /download?url=...&type=video`
+The response contains a `jx_live_...` key. Save it immediately; the raw key is not stored and cannot be displayed again.
+
+## Manage keys
+- `POST /admin/keys/create?label=Juno%20Music%20Bot` — create a key
+- `GET /admin/keys` — list keys (metadata only)
+- `POST /admin/keys/revoke?key_id=1` — revoke by ID
+- `POST /admin/keys/revoke?api_key=jx_live_...` — revoke by key
+
+## Music endpoints
 - `GET /health`
-- `GET /docs`
+- `GET /search?q=...&limit=5`
+- `GET /info?url=...`
+- `GET /download?url=...&type=audio|video`
+- `/docs`
 
-## Scaling
-For a large number of bots, use a persistent database and shared cache/rate limiter (Redis/PostgreSQL) instead of `/tmp` SQLite. Run multiple API instances behind a load balancer and keep FFmpeg installed on every worker.
+## Connect a bot
+```env
+MUSIC_API_URL=https://YOUR-API-APP.herokuapp.com
+MUSIC_API_KEY=jx_live_YOUR_BOT_KEY
+```
+
+Use only media you are authorized to access and comply with applicable platform terms and copyright law.
