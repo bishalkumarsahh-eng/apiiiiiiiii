@@ -21,7 +21,10 @@ API_DB = os.getenv("API_DB", "/tmp/juno_api.sqlite3").strip()
 MAX_DURATION = int(os.getenv("MAX_DURATION", "900"))
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "10"))
 DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "300"))
-# Optional YouTube Netscape-format cookies, supplied as base64 in YOUTUBE_COOKIES_B64.\nYOUTUBE_COOKIES_B64 = os.getenv("YOUTUBE_COOKIES_B64", "").strip()\nYOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "/tmp/juno_youtube_cookies.txt").strip()\n
+# Optional YouTube Netscape-format cookies, supplied as base64 in YOUTUBE_COOKIES_B64.
+YOUTUBE_COOKIES_B64 = os.getenv("YOUTUBE_COOKIES_B64", "").strip()
+YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE", "/tmp/juno_youtube_cookies.txt").strip()
+
 app = FastAPI(title=APP_NAME, version="3.1.0", docs_url="/docs", redoc_url="/redoc")
 admin_bearer = HTTPBearer(auto_error=False, scheme_name="AdminKey")
 
