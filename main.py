@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 import yt_dlp
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import StreamingResponse
 
 APP_NAME = os.getenv("API_NAME", "Juno X Music API")
@@ -20,7 +21,8 @@ MAX_DURATION = int(os.getenv("MAX_DURATION", "900"))
 MAX_RESULTS = int(os.getenv("MAX_RESULTS", "10"))
 DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "300"))
 
-app = FastAPI(title=APP_NAME, version="3.0.0", docs_url="/docs", redoc_url="/redoc")
+app = FastAPI(title=APP_NAME, version="3.0.1", docs_url="/docs", redoc_url="/redoc")
+admin_bearer = HTTPBearer(auto_error=False, scheme_name="AdminKey")
 
 
 def db():
@@ -33,16 +35,21 @@ def db():
 def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
-def check_admin(request: Request):
+def check_admin(request: Request, credentials: HTTPAuthorizationCredentials | None = None):
     key = request.headers.get("x-admin-key", "").strip()
+    if not key and credentials and credentials.scheme.lower() == "bearer":
+        key = credentials.credentials.strip()
     if not key:
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer "):
-            key = auth[7:].strip()
+        key = request.query_params.get("admin_key", "").strip()
     if not ADMIN_KEY:
         raise HTTPException(500, "ADMIN_KEY is not configured on the server")
     if not key or not secrets.compare_digest(key, ADMIN_KEY):
-        raise HTTPException(401, "Invalid admin key")
+        raise HTTPException(403, "Admin authentication required")
+
+
+def require_admin(request: Request, credentials: HTTPAuthorizationCredentials | None = Security(admin_bearer)):
+    check_admin(request, credentials)
+    return True
 
 
 
@@ -150,8 +157,8 @@ def download_sync(url: str, media_type: str, workdir: str):
 
 
 @app.post("/admin/keys/create")
-async def create_api_key(request: Request, label: str = "bot"):
-    check_admin(request)
+async def create_api_key(request: Request, label: str = "bot", _: bool = Security(require_admin)):
+
     label = label.strip()[:100] or "bot"
     raw = "jx_live_" + secrets.token_urlsafe(36)
     conn = db()
@@ -162,16 +169,16 @@ async def create_api_key(request: Request, label: str = "bot"):
     return {"success": True, "id": key_id, "label": label, "api_key": raw, "warning": "Save this key now. It will not be shown again."}
 
 @app.get("/admin/keys")
-async def list_api_keys(request: Request):
-    check_admin(request)
+async def list_api_keys(request: Request, _: bool = Security(require_admin)):
+
     conn = db()
     rows = conn.execute("SELECT id,label,created_at,last_used,active FROM api_keys ORDER BY id DESC").fetchall()
     conn.close()
     return {"success": True, "keys": [dict(r) for r in rows]}
 
 @app.post("/admin/keys/revoke")
-async def revoke_api_key(request: Request, api_key: Optional[str] = None, key_id: Optional[int] = None):
-    check_admin(request)
+async def revoke_api_key(request: Request, api_key: Optional[str] = None, key_id: Optional[int] = None, _: bool = Security(require_admin)):
+
     if not api_key and key_id is None:
         raise HTTPException(400, "Provide api_key or key_id")
     conn = db()
@@ -187,7 +194,7 @@ async def revoke_api_key(request: Request, api_key: Optional[str] = None, key_id
 
 @app.get("/")
 async def root():
-    return {"ok": True, "service": APP_NAME, "version": "3.0.0", "time": int(time.time())}
+    return {"ok": True, "service": APP_NAME, "version": "3.0.1", "time": int(time.time())}
 
 
 @app.get("/health")
@@ -267,6 +274,6 @@ async def download(request: Request, url: str, type: str = "audio"):
         media_type=media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{title}{path.suffix}"',
-            "X-API-Version": "3.0.0",
+            "X-API-Version": "3.0.1",
         },
     )
