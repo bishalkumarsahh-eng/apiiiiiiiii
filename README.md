@@ -1,73 +1,58 @@
-# Juno X Music — Standalone API
+# Juno X Music API v3
 
-This is a **separate API server**. It does not contain or require the Telegram bot.
+Standalone API for multiple Telegram/music bots.
 
-Your Telegram music bot can call this server with one API URL and one API key.
+## Features
+- Multiple independent API keys
+- Per-key rate limiting
+- Key enable/revoke management
+- Search, metadata and audio/video download
+- Concurrency protection for many bots
+- Request IDs and response timing headers
+- FastAPI Swagger docs at `/docs`
 
-## 1. Generate your API key
+## Deploy
+Set these environment variables:
 
-Run:
+`ADMIN_KEY` = a strong secret used only for key management.
 
+Optional tuning:
+- `MAX_RESULTS=20`
+- `MAX_CONCURRENT_DOWNLOADS=4`
+- `MAX_CONCURRENT_LOOKUPS=12`
+- `RATE_LIMIT_PER_MINUTE=120`
+- `MAX_DURATION=900`
+- `DOWNLOAD_TIMEOUT=300`
+
+Install FFmpeg on the server because audio conversion/video merging uses FFmpeg.
+
+## Create an API key
+Send an authenticated POST request to `/admin/keys` with `x-admin-key`.
+
+Example:
 ```bash
-python generate_key.py
+curl -X POST 'https://YOUR-API/admin/keys?label=telegram-bot-1' -H 'x-admin-key: YOUR_ADMIN_KEY'
 ```
 
-Copy the generated value into `API_KEY`.
+Save the returned API key. The server stores only its hash.
 
-## 2. Run locally
-
-```bash
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-API URL:
-
+## Use from any bot
+Header:
 ```text
-http://localhost:8000
+X-API-Key: YOUR_API_KEY
 ```
-
-## 3. Connect your Telegram music bot
-
-Set these variables in your music bot:
-
-```env
-MUSIC_API_URL=https://YOUR-API-APP.example.com
-MUSIC_API_KEY=YOUR_GENERATED_KEY
-ENABLE_API=True
-```
-
-The existing Juno X Music API downloader is compatible with:
-
+or
 ```text
-GET /download?url=VIDEO_ID&type=audio&api_key=YOUR_KEY
-GET /download?url=VIDEO_ID&type=video&api_key=YOUR_KEY
+Authorization: Bearer YOUR_API_KEY
 ```
 
-The API also supports the safer header forms:
+Endpoints:
+- `GET /search?q=term&limit=10`
+- `GET /info?url=...`
+- `GET /download?url=...&type=audio&quality=192`
+- `GET /download?url=...&type=video`
+- `GET /health`
+- `GET /docs`
 
-```text
-X-API-Key: YOUR_KEY
-```
-
-or:
-
-```text
-Authorization: Bearer YOUR_KEY
-```
-
-## Endpoints
-
-- `GET /health` — health check, no key required
-- `GET /search?q=...` — YouTube search
-- `GET /info?url=...` — video information
-- `GET /download?url=...&type=audio|video` — binary media response
-- `/docs` — interactive API documentation
-
-## Render / Heroku
-
-Use the `Procfile` web process. Set `API_KEY` as a secret environment variable.
-
-Do not put your real API key into GitHub or the ZIP.
-
-Use this service only for media you are authorized to access and in accordance with applicable platform terms and copyright law.
+## Scaling
+For a large number of bots, use a persistent database and shared cache/rate limiter (Redis/PostgreSQL) instead of `/tmp` SQLite. Run multiple API instances behind a load balancer and keep FFmpeg installed on every worker.
