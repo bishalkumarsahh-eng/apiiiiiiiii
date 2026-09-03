@@ -1,8 +1,28 @@
-# Juno X Music — Standalone Powerful API v3
+# Juno X Music API v4 — Heroku Ready
 
-Separate API server for multiple Telegram/music bots. Each bot can have its own API key.
+Standalone API for multiple Telegram/music bots. Each bot can have its own API key.
 
-## Environment variables
+## Features
+- `/search`, `/info`, `/download`
+- Separate bot API keys with create/list/revoke admin endpoints
+- YouTube Netscape cookies via `YOUTUBE_COOKIES_B64`
+- Automatic YouTube client fallback (`web_safari`, `mweb`, `tv`, `android_vr`, `web_embedded` by default)
+- FFmpeg detection on `/health`
+- Heroku web dyno ready
+- Temporary download files cleaned automatically
+
+Current yt-dlp documentation notes that YouTube is rolling out Proof-of-Origin (PO) Token enforcement and recommends a PO Token Provider for clients that require it. This API therefore uses a client fallback strategy and exposes `YOUTUBE_PLAYER_CLIENTS`; if YouTube requires a PO token for a particular request, an external provider may still be necessary.
+
+## Heroku buildpacks
+1. Python buildpack
+2. FFmpeg buildpack
+
+Recommended FFmpeg buildpack:
+`https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git`
+
+Do **not** add `ffmpeg` to `requirements.txt`; the buildpack supplies the system binary.
+
+## Environment
 ```env
 API_NAME=Juno X Music API
 ADMIN_KEY=YOUR_LONG_RANDOM_ADMIN_SECRET
@@ -10,45 +30,32 @@ API_DB=/tmp/juno_api.sqlite3
 MAX_DURATION=900
 MAX_RESULTS=20
 DOWNLOAD_TIMEOUT=300
-```
-`API_KEY` is optional legacy compatibility. New installations should use `ADMIN_KEY` and create individual bot keys.
-
-## Generate a bot API key
-Open `/docs`, find **POST /admin/keys/create**, click **Try it out**, enter a label such as `Juno Music Bot`, then click **Execute**.
-
-Authorize the admin request with either `X-Admin-Key: YOUR_ADMIN_KEY` or `Authorization: Bearer YOUR_ADMIN_KEY`.
-
-The response contains a `jx_live_...` key. Save it immediately; the raw key is not stored and cannot be displayed again.
-
-## Manage keys
-- `POST /admin/keys/create?label=Juno%20Music%20Bot` — create a key
-- `GET /admin/keys` — list keys (metadata only)
-- `POST /admin/keys/revoke?key_id=1` — revoke by ID
-- `POST /admin/keys/revoke?api_key=jx_live_...` — revoke by key
-
-## Music endpoints
-- `GET /health`
-- `GET /search?q=...&limit=5`
-- `GET /info?url=...`
-- `GET /download?url=...&type=audio|video`
-- `/docs`
-
-## Connect a bot
-```env
-MUSIC_API_URL=https://YOUR-API-APP.herokuapp.com
-MUSIC_API_KEY=jx_live_YOUR_BOT_KEY
+YOUTUBE_COOKIES_B64=
+YOUTUBE_COOKIES_FILE=/tmp/juno_youtube_cookies.txt
+YOUTUBE_PLAYER_CLIENTS=web_safari,mweb,tv,android_vr,web_embedded
 ```
 
-Use only media you are authorized to access and comply with applicable platform terms and copyright law.
+`API_KEY` remains supported only for legacy compatibility.
 
+## Create a bot key
+Use `/docs` → `POST /admin/keys/create` and authorize with `X-Admin-Key` or `Authorization: Bearer`.
 
-## YouTube cookie support
+## Bot endpoints
+```text
+GET /search?q=QUERY&limit=5&api_key=BOT_KEY
+GET /info?url=VIDEO_ID_OR_URL&api_key=BOT_KEY
+GET /download?url=VIDEO_ID_OR_URL&type=audio&api_key=BOT_KEY
+GET /download?url=VIDEO_ID_OR_URL&type=video&api_key=BOT_KEY
+```
 
-If YouTube returns `Sign in to confirm you're not a bot`, the API can optionally use a
-Netscape-format YouTube cookies file. Set `YOUTUBE_COOKIES_B64` to the base64-encoded
-contents of that cookies file. The API writes it to `/tmp/juno_youtube_cookies.txt`
-with restricted permissions and passes it to yt-dlp.
+For production, prefer the `X-API-Key` header over putting the key in URLs when your bot code allows it.
 
-Do not commit cookies to source control or share them. Cookies are authentication
-credentials and should be rotated/revoked if exposed. Use cookies only for accounts
-and access you are authorized to use and in accordance with YouTube's terms.
+## YouTube cookies
+The cookie variable must contain a Base64-encoded Netscape/Mozilla cookie file. Do not commit or share the cookie file. If cookies are exposed, revoke/rotate the associated session.
+
+Fresh cookies should be exported from a browser session according to yt-dlp's current guidance. Avoid opening the YouTube session again after exporting when using the private-session method, because YouTube may rotate cookies.
+
+## Important limitation
+No downloader can guarantee permanent YouTube access. YouTube can change its anti-bot, PO-token, client, or format requirements. If a request is still rejected after fresh cookies and the fallback clients, deploy a dedicated PO Token Provider alongside the API or use another supported extraction source.
+
+Use only content and accounts you are authorized to access and comply with applicable platform terms and copyright law.
