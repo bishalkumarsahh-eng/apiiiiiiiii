@@ -27,8 +27,10 @@ MAX_VIDEO_QUALITY = int(os.getenv("MAX_VIDEO_QUALITY", "720"))
 PORT = int(os.getenv("PORT", "8000"))
 COOKIE_URL = os.getenv("COOKIE_URL", "").strip()
 YOUTUBE_USE_COOKIES = os.getenv("YOUTUBE_USE_COOKIES", "true").lower() in ("1", "true", "yes", "on")
-COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.txt")
-YOUTUBE_PLAYER_CLIENTS = os.getenv("YOUTUBE_PLAYER_CLIENTS", "web_embedded").strip()
+COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.txt").strip()
+COOKIE_PATH = os.path.abspath(COOKIES_FILE)
+COOKIE_REQUIRED = os.getenv("COOKIE_REQUIRED", "true").lower() in ("1", "true", "yes", "on")
+YOUTUBE_PLAYER_CLIENTS = os.getenv("YOUTUBE_PLAYER_CLIENTS", "web,web_embedded").strip()
 CONCURRENT_FRAGMENT_DOWNLOADS = int(os.getenv("CONCURRENT_FRAGMENT_DOWNLOADS", "10"))
 HTTP_CHUNK_SIZE = int(os.getenv("HTTP_CHUNK_SIZE", "10485760"))
 SOCKET_TIMEOUT = int(os.getenv("SOCKET_TIMEOUT", "20"))
@@ -171,6 +173,40 @@ def normalize_url(url: str) -> str:
     return url
 
 
+def cookie_status() -> Dict[str, Any]:
+    if not YOUTUBE_USE_COOKIES:
+        return {"enabled": False, "available": False, "path": COOKIE_PATH, "valid": False, "reason": "disabled"}
+    if not os.path.isfile(COOKIE_PATH):
+        return {"enabled": True, "available": False, "path": COOKIE_PATH, "valid": False, "reason": "file_not_found"}
+    try:
+        size = os.path.getsize(COOKIE_PATH)
+        if size == 0:
+            return {"enabled": True, "available": True, "path": COOKIE_PATH, "valid": False, "reason": "empty_file"}
+        rows = 0
+        nonexpired = 0
+        now = int(time.time())
+        with open(COOKIE_PATH, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) != 7:
+                    continue
+                rows += 1
+                try:
+                    expires = int(parts[4])
+                    if expires == 0 or expires > now:
+                        nonexpired += 1
+                except ValueError:
+                    pass
+        valid = rows > 0 and nonexpired > 0
+        return {"enabled": True, "available": True, "path": COOKIE_PATH, "valid": valid,
+                "reason": "ok" if valid else "no_nonexpired_cookies", "cookies": rows, "nonexpired": nonexpired, "bytes": size}
+    except Exception as e:
+        return {"enabled": True, "available": True, "path": COOKIE_PATH, "valid": False, "reason": f"read_error: {e}"}
+
+
 def ydl_base():
     opts = {
         "outtmpl": f"{DOWNLOAD_DIR}/%(title).150s_%(id)s.%(ext)s",
@@ -181,7 +217,12 @@ def ydl_base():
         "concurrent_fragment_downloads": CONCURRENT_FRAGMENT_DOWNLOADS,
         "http_chunk_size": HTTP_CHUNK_SIZE,
     }
-    if YOUTUBE_USE_COOKIES and os.path.exists(COOKIES_FILE): opts["cookiefile"] = COOKIES_FILE
+    status = cookie_status()
+    if YOUTUBE_USE_COOKIES:
+        if status.get("valid"):
+            opts["cookiefile"] = COOKIE_PATH
+        elif COOKIE_REQUIRED:
+            raise RuntimeError(f"YouTube cookies are required but unavailable: {status.get('reason')}")
     return opts
 
 
@@ -265,32 +306,41 @@ async def cleanup_task():
 async def lifespan(app: FastAPI):
     init_db()
     if COOKIE_URL:
-        try: urllib.request.urlretrieve(COOKIE_URL, COOKIES_FILE)
-        except Exception as e: logger.warning("COOKIE_URL failed: %s", e)
+        try:
+            urllib.request.urlretrieve(COOKIE_URL, COOKIE_PATH)
+            logger.info("Downloaded YouTube cookies to %s", COOKIE_PATH)
+        except Exception as e:
+            logger.warning("COOKIE_URL failed: %s", e)
+    status = cookie_status()
+    if YOUTUBE_USE_COOKIES:
+        logger.info("YouTube cookies: %s (path=%s)", status.get("reason"), COOKIE_PATH)
+        if COOKIE_REQUIRED and not status.get("valid"):
+            raise RuntimeError(f"YouTube cookies are required but unavailable: {status.get('reason')}")
     task = asyncio.create_task(cleanup_task())
     yield
     task.cancel()
 
 
-app = FastAPI(title="Juno X Music API", version="3.1.0", description="Advanced YouTube/YouTube Music API", lifespan=lifespan)
+app = FastAPI(title="Juno X Music API", version="3.2.0", description="Advanced YouTube/YouTube Music API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/")
 async def root():
-    return {"name":"Juno X Music API", "version":"3.1.0", "status":"online", "docs":"/docs", "health":"/health"}
+    return {"name":"Juno X Music API", "version":"3.2.0", "status":"online", "docs":"/docs", "health":"/health"}
 
 
 @app.get("/health")
 async def health():
-    result = {"status":"healthy", "version":"3.1.0", "yt_dlp_version":yt_dlp.version.__version__,
-              "cache_expiry_hours":CACHE_EXPIRE_HOURS, "authentication": bool(API_KEYS), "api_keys_configured": len(API_KEYS), "stats":get_stats()}
+    result = {"status":"healthy", "version":"3.2.0", "yt_dlp_version":yt_dlp.version.__version__,
+              "cache_expiry_hours":CACHE_EXPIRE_HOURS, "authentication": bool(API_KEYS), "api_keys_configured": len(API_KEYS),
+              "youtube_cookies": cookie_status(), "player_clients": YOUTUBE_PLAYER_CLIENTS, "stats":get_stats()}
     return result
 
 
 @app.get("/stats")
 async def stats(_: bool = Depends(guard)):
-    return {"status": True, "version":"3.1.0", "stats":get_stats(), "storage_files":len(os.listdir(DOWNLOAD_DIR))}
+    return {"status": True, "version":"3.2.0", "stats":get_stats(), "storage_files":len(os.listdir(DOWNLOAD_DIR))}
 
 
 

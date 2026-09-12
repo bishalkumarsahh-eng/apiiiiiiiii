@@ -15,3 +15,19 @@ Config Vars:
 `API_KEY`, `API_KEYS` (optional), `ADMIN_API_KEY`, `YOUTUBE_USE_COOKIES=true`, `COOKIES_FILE=cookies.txt`, `MAX_VIDEO_QUALITY=720`, `CACHE_EXPIRE_HOURS=24`, `RATE_LIMIT=60`, `RATE_WINDOW=60`.
 
 Endpoints: `/`, `/health`, `/docs`, `/search`, `/info`, `/formats`, `/thumbnail`, `/download`, `/audio`, `/video`, `/files/{filename}`, `/stats`, `/admin/keys`, `/admin/stats`.
+
+
+## YouTube cookies
+
+Cookies are enabled by default. The server resolves `COOKIES_FILE` to an absolute path, validates the Netscape cookie file at startup, and reports cookie status at `/health`.
+
+Recommended Heroku settings:
+
+```text
+YOUTUBE_USE_COOKIES=true
+COOKIES_FILE=cookies.txt
+COOKIE_REQUIRED=true
+YOUTUBE_PLAYER_CLIENTS=web,web_embedded
+```
+
+If `COOKIE_REQUIRED=true`, the dyno will fail fast instead of silently making unauthenticated YouTube requests when the cookie file is missing or empty.
