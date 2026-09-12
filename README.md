@@ -1,40 +1,17 @@
-# Juno X Music API v3 — Advanced / Heroku Ready
+# Juno X Music API v3.1 Advanced
 
-## Required Heroku Config Var
-Set exactly:
+Ready for Heroku. Authentication accepts:
+- `X-API-Key: <key>`
+- `Authorization: Bearer <key>`
+- `?api_key=<key>`
+- `?key=<key>`
 
-`API_KEY=jx_live_...`
+Configure `API_KEY` for one key, or `API_KEYS` for multiple comma-separated client keys. `BOT_API_KEY` remains supported for older bots. Use `ADMIN_API_KEY` for `/admin/keys` and `/admin/stats`.
 
-Generate a key locally with:
+YouTube cookies are enabled by default with `YOUTUBE_USE_COOKIES=true` and `COOKIES_FILE=cookies.txt`. Put a valid cookies.txt in the project or set `COOKIE_URL`.
 
-`python generate_key.py`
+## Heroku
+Config Vars:
+`API_KEY`, `API_KEYS` (optional), `ADMIN_API_KEY`, `YOUTUBE_USE_COOKIES=true`, `COOKIES_FILE=cookies.txt`, `MAX_VIDEO_QUALITY=720`, `CACHE_EXPIRE_HOURS=24`, `RATE_LIMIT=60`, `RATE_WINDOW=60`.
 
-For backward compatibility, `BOT_API_KEY` is accepted only when `API_KEY` is absent.
-
-## Authentication
-Protected endpoints accept any one of:
-
-- `X-API-Key: YOUR_KEY`
-- `Authorization: Bearer YOUR_KEY`
-- `?api_key=YOUR_KEY`
-
-## Endpoints
-- `GET /` — API information
-- `GET /health` — public health/status
-- `GET /search?q=...&limit=1`
-- `GET /info?url=...`
-- `GET /formats?url=...`
-- `GET /thumbnail?url=...`
-- `GET /download?url=...` — JSON audio result
-- `GET /download?url=...&type=audio` — direct MP3 file
-- `GET /download?url=...&type=video` — direct MP4/video file
-- `GET /audio?url=...`
-- `GET /video?url=...`
-- `GET /files/{filename}`
-- `GET /stats` — protected usage statistics
-- `/docs` — Swagger UI
-
-## Notes
-FFmpeg is required by yt-dlp for MP3 conversion and video merging. Use a Heroku FFmpeg buildpack or another system package source if your stack does not already contain FFmpeg.
-
-The API keeps SQLite cache metadata, automatically removes expired download files, limits abusive request rates, and preserves the old Music Bot `/download?type=audio|video` contract.
+Endpoints: `/`, `/health`, `/docs`, `/search`, `/info`, `/formats`, `/thumbnail`, `/download`, `/audio`, `/video`, `/files/{filename}`, `/stats`, `/admin/keys`, `/admin/stats`.

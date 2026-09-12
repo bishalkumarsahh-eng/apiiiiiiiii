@@ -40,9 +40,18 @@ MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "20"))
 PUBLIC_HEALTH = os.getenv("PUBLIC_HEALTH", "true").lower() in ("1", "true", "yes", "on")
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
-# Backward compatibility with older deployments that used BOT_API_KEY.
-if not API_KEY:
-    API_KEY = os.getenv("BOT_API_KEY", "").strip()
+# Accept one or many keys. API_KEYS is comma/newline separated and takes precedence.
+_raw_keys = os.getenv("API_KEYS", "").replace("\n", ",")
+API_KEYS = {k.strip() for k in _raw_keys.split(",") if k.strip()}
+if API_KEY:
+    API_KEYS.add(API_KEY)
+# Backward compatibility with older deployments.
+legacy_key = os.getenv("BOT_API_KEY", "").strip()
+if legacy_key:
+    API_KEYS.add(legacy_key)
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
+if ADMIN_API_KEY:
+    API_KEYS.add(ADMIN_API_KEY)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("juno-api")
@@ -82,18 +91,30 @@ def get_stats():
         return {}
 
 
-async def require_api_key(request: Request, x_api_key: Optional[str] = Security(api_key_header), authorization: Optional[str] = Header(None), api_key: Optional[str] = Query(None, description="API key; legacy compatibility")):
-    if not API_KEY:
+async def require_api_key(request: Request, x_api_key: Optional[str] = Security(api_key_header), authorization: Optional[str] = Header(None), api_key: Optional[str] = Query(None, description="API key; legacy compatibility"), key: Optional[str] = Query(None, description="API key alias")):
+    if not API_KEYS:
         raise HTTPException(503, "API authentication is not configured on the server.")
-    supplied = (x_api_key or api_key or "").strip()
+    # Accept headers, bearer auth, and both common query aliases.
+    supplied = (x_api_key or api_key or key or "").strip()
     if not supplied and authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() == "bearer":
             supplied = token.strip()
-    if not supplied or not secrets.compare_digest(supplied, API_KEY):
+    valid = any(secrets.compare_digest(supplied, candidate) for candidate in API_KEYS) if supplied else False
+    if not valid:
         stat_inc("auth_failures")
         raise HTTPException(401, "Invalid or missing API key.")
     stat_inc("authenticated_requests")
+    return True
+
+
+def require_admin_key(request: Request, x_api_key: Optional[str] = Security(api_key_header), authorization: Optional[str] = Header(None), api_key: Optional[str] = Query(None), admin_key: Optional[str] = Query(None)):
+    supplied = (x_api_key or admin_key or api_key or "").strip()
+    if not supplied and authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer": supplied = token.strip()
+    if not ADMIN_API_KEY or not supplied or not secrets.compare_digest(supplied, ADMIN_API_KEY):
+        raise HTTPException(403, "Invalid or missing admin API key.")
     return True
 
 
@@ -251,26 +272,38 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="Juno X Music API", version="3.0.0", description="Advanced YouTube/YouTube Music API", lifespan=lifespan)
+app = FastAPI(title="Juno X Music API", version="3.1.0", description="Advanced YouTube/YouTube Music API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/")
 async def root():
-    return {"name":"Juno X Music API", "version":"3.0.0", "status":"online", "docs":"/docs", "health":"/health"}
+    return {"name":"Juno X Music API", "version":"3.1.0", "status":"online", "docs":"/docs", "health":"/health"}
 
 
 @app.get("/health")
 async def health():
-    result = {"status":"healthy", "version":"3.0.0", "yt_dlp_version":yt_dlp.version.__version__,
-              "cache_expiry_hours":CACHE_EXPIRE_HOURS, "authentication": bool(API_KEY), "stats":get_stats()}
+    result = {"status":"healthy", "version":"3.1.0", "yt_dlp_version":yt_dlp.version.__version__,
+              "cache_expiry_hours":CACHE_EXPIRE_HOURS, "authentication": bool(API_KEYS), "api_keys_configured": len(API_KEYS), "stats":get_stats()}
     return result
 
 
 @app.get("/stats")
 async def stats(_: bool = Depends(guard)):
-    return {"status": True, "version":"3.0.0", "stats":get_stats(), "storage_files":len(os.listdir(DOWNLOAD_DIR))}
+    return {"status": True, "version":"3.1.0", "stats":get_stats(), "storage_files":len(os.listdir(DOWNLOAD_DIR))}
 
+
+
+
+@app.get("/admin/keys")
+async def admin_keys(_: bool = Depends(require_admin_key)):
+    return {"status": True, "configured_keys": len(API_KEYS), "admin_key_configured": bool(ADMIN_API_KEY),
+            "hint": "Use API_KEYS for comma-separated client keys; API_KEY remains supported."}
+
+@app.get("/admin/stats")
+async def admin_stats(_: bool = Depends(require_admin_key)):
+    return {"status": True, "version": "3.1.0", "stats": get_stats(),
+            "storage_files": len(os.listdir(DOWNLOAD_DIR)), "configured_keys": len(API_KEYS)}
 
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1), limit: int = Query(1, ge=1, le=20), _: bool = Depends(guard)):
