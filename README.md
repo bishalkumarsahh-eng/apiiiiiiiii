@@ -1,24 +1,40 @@
-# Juno X Music API — Music Bot Compatible
+# Juno X Music API v3 — Advanced / Heroku Ready
 
-This build uses the same API download contract as the working API package.
+## Required Heroku Config Var
+Set exactly:
 
-## Endpoints
-- `GET /health`
-- `GET /search?q=QUERY&limit=1`
-- `GET /thumbnail?url=YOUTUBE_URL`
-- `GET /download?url=YOUTUBE_URL&type=audio`
-- `GET /download?url=YOUTUBE_URL&type=video`
-- `GET /video?url=YOUTUBE_URL`
-- `GET /files/{filename}`
+`API_KEY=jx_live_...`
 
-## Important download behavior
-`/download` returns JSON by default with:
-`status`, `title`, `duration`, `thumbnail`, `filename`, `path`, `download_url`, `videoId`, `uploader`, `filesize`.
+Generate a key locally with:
 
-When `type=audio` or `type=video` is supplied, it returns the downloaded file directly for legacy clients that expect a file response.
+`python generate_key.py`
+
+For backward compatibility, `BOT_API_KEY` is accepted only when `API_KEY` is absent.
 
 ## Authentication
-Set `API_KEY` in Heroku. Send it as `X-API-Key`, `Authorization: Bearer ...`, or `?api_key=...`.
+Protected endpoints accept any one of:
 
-## Heroku
-Procfile uses `main:app` and Heroku's `$PORT`.
+- `X-API-Key: YOUR_KEY`
+- `Authorization: Bearer YOUR_KEY`
+- `?api_key=YOUR_KEY`
+
+## Endpoints
+- `GET /` — API information
+- `GET /health` — public health/status
+- `GET /search?q=...&limit=1`
+- `GET /info?url=...`
+- `GET /formats?url=...`
+- `GET /thumbnail?url=...`
+- `GET /download?url=...` — JSON audio result
+- `GET /download?url=...&type=audio` — direct MP3 file
+- `GET /download?url=...&type=video` — direct MP4/video file
+- `GET /audio?url=...`
+- `GET /video?url=...`
+- `GET /files/{filename}`
+- `GET /stats` — protected usage statistics
+- `/docs` — Swagger UI
+
+## Notes
+FFmpeg is required by yt-dlp for MP3 conversion and video merging. Use a Heroku FFmpeg buildpack or another system package source if your stack does not already contain FFmpeg.
+
+The API keeps SQLite cache metadata, automatically removes expired download files, limits abusive request rates, and preserves the old Music Bot `/download?type=audio|video` contract.
