@@ -1,4 +1,7 @@
-.env
+
 __pycache__/
 *.pyc
-.DS_Store
+.env
+cookies.txt
+downloads/
+cache.db
